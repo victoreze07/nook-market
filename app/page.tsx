@@ -23,23 +23,110 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All categories");
   const [saved, setSaved] = useState<number[]>([2]);
-  const [cart, setCart] = useState(1);
+  const [cart, setCart] = useState<Record<number, number>>({});
+  const [cartOpen, setCartOpen] = useState(false);
+  const [checkoutMode, setCheckoutMode] = useState(false);
+  const [orderId, setOrderId] = useState("");
+  const [submittingOrder, setSubmittingOrder] = useState(false);
+  const [authMode, setAuthMode] = useState<"signin" | "register" | null>(null);
+  const [user, setUser] = useState<{ name: string; email: string } | null>(null);
+  const [authError, setAuthError] = useState("");
+  const [submittingAuth, setSubmittingAuth] = useState(false);
   const [notice, setNotice] = useState("");
 
   const visible = useMemo(() => products.filter((p) =>
     (category === "All categories" || p.category === category) &&
     p.title.toLowerCase().includes(query.toLowerCase())
   ), [category, query]);
+  const cartLines = products.filter((product) => cart[product.id]).map((product) => ({ ...product, quantity: cart[product.id] }));
+  const cartCount = cartLines.reduce((total, item) => total + item.quantity, 0);
+  const subtotal = cartLines.reduce((total, item) => total + item.price * item.quantity, 0);
+  const shipping = subtotal === 0 || subtotal >= 500 ? 0 : 18;
+  const total = subtotal + shipping;
 
   function flash(message: string) {
     setNotice(message);
     window.setTimeout(() => setNotice(""), 2200);
   }
 
+  function addToCart(productId: number) {
+    setCart((current) => ({ ...current, [productId]: (current[productId] ?? 0) + 1 }));
+    setCartOpen(true);
+    flash("Added to your bag");
+  }
+
+  function setQuantity(productId: number, quantity: number) {
+    setCart((current) => {
+      const next = { ...current };
+      if (quantity < 1) delete next[productId]; else next[productId] = quantity;
+      return next;
+    });
+  }
+
+  async function placeOrder(formData: FormData) {
+    setSubmittingOrder(true);
+    try {
+      const response = await fetch("http://localhost:8080/api/orders", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          customerId: user?.email ?? String(formData.get("email")),
+          items: cartLines.map((item) => ({ productId: String(item.id), quantity: item.quantity, price: item.price })),
+          shippingAddress: {
+            name: formData.get("name"),
+            address: formData.get("address"),
+            city: formData.get("city"),
+            postalCode: formData.get("postalCode"),
+          },
+        }),
+      });
+      if (!response.ok) throw new Error("Order service unavailable");
+      const order = await response.json();
+      setOrderId(order.id);
+      setCart({});
+      setCheckoutMode(false);
+    } catch {
+      flash("Checkout could not connect to the order service");
+    } finally {
+      setSubmittingOrder(false);
+    }
+  }
+
+  async function submitAuth(formData: FormData) {
+    if (!authMode) return;
+    setSubmittingAuth(true);
+    setAuthError("");
+    try {
+      const response = await fetch(`http://localhost:8080/api/auth/${authMode === "register" ? "register" : "login"}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: formData.get("name"), email: formData.get("email"), password: formData.get("password") }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        const messages: Record<string, string> = {
+          email_already_registered: "That email is already registered. Try signing in.",
+          invalid_email_or_password: "The email or password is incorrect.",
+          valid_name_email_and_8_character_password_required: "Enter a name, valid email, and password of at least 8 characters.",
+        };
+        throw new Error(messages[result.error] ?? "Authentication failed. Please try again.");
+      }
+      setUser({ name: result.name, email: result.email });
+      setAuthMode(null);
+      flash(authMode === "register" ? "Account saved" : "Signed in");
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Authentication failed.");
+    } finally {
+      setSubmittingAuth(false);
+    }
+  }
+
   return (
     <main>
       {notice && <div className="toast" role="status">✓ {notice}</div>}
-      <div className="utility"><div className="shell utility-inner"><span>Hi! <button>Sign in</button> or <button>register</button></span><nav><button>Daily Deals</button><button>Brand Outlet</button><button>Help & Contact</button><span className="utility-spacer"/><button>Sell</button><button>Watchlist ♡</button><button>My Nook ▾</button><button aria-label="Notifications">♢</button><button aria-label={`Cart with ${cart} items`}>Bag <b>{cart}</b></button></nav></div></div>
+      {authMode && <div className="modal-backdrop" role="presentation" onMouseDown={() => setAuthMode(null)}><section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setAuthMode(null)} aria-label="Close">×</button><span className="kicker">NOOK ACCOUNT</span><h2 id="auth-title">{authMode === "signin" ? "Welcome back" : "Create your account"}</h2><p>{authMode === "signin" ? "Sign in to keep track of your finds." : "Save items and move through checkout faster."}</p><form action={submitAuth}>{authMode === "register" && <label>Name<input name="name" required autoComplete="name"/></label>}<label>Email<input name="email" type="email" required autoComplete="email"/></label><label>Password<input name="password" type="password" minLength={8} required autoComplete={authMode === "signin" ? "current-password" : "new-password"}/></label>{authError && <p className="form-error" role="alert">{authError}</p>}<button className="primary auth-submit" type="submit" disabled={submittingAuth}>{submittingAuth ? "Please wait…" : authMode === "signin" ? "Sign in" : "Register"}</button></form><small>Your account is stored in the local PostgreSQL database. Add secure sessions and email verification before production.</small></section></div>}
+      {cartOpen && <><button className="drawer-backdrop" aria-label="Close bag" onClick={() => setCartOpen(false)}/><aside className="cart-drawer" aria-label="Shopping bag"><div className="drawer-head"><div><span className="kicker">YOUR BAG</span><h2>{checkoutMode ? "Checkout" : `${cartCount} ${cartCount === 1 ? "item" : "items"}`}</h2></div><button onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>{orderId ? <div className="order-success"><b>✓</b><h3>Order received</h3><p>Your demo order number is <strong>{orderId.slice(0, 8)}</strong>.</p><p>No payment was collected.</p><button onClick={() => { setOrderId(""); setCartOpen(false); }}>Continue shopping</button></div> : checkoutMode ? <form className="checkout-form" action={placeOrder}><p className="checkout-note">Shipping details</p><label>Full name<input name="name" required defaultValue={user?.name}/></label><label>Email<input name="email" type="email" required defaultValue={user?.email}/></label><label>Street address<input name="address" required/></label><div className="field-row"><label>City<input name="city" required/></label><label>Postal code<input name="postalCode" required/></label></div><div className="summary"><span>Order total</span><strong>${total.toFixed(2)}</strong></div><button className="checkout-button" disabled={submittingOrder}>{submittingOrder ? "Placing order…" : "Place demo order"}</button><button className="text-button" type="button" onClick={() => setCheckoutMode(false)}>← Back to bag</button><small>No payment is collected in this demo checkout.</small></form> : cartLines.length ? <><div className="cart-lines">{cartLines.map((item) => <article className="cart-line" key={item.id}><img src={item.image} alt=""/><div><h3>{item.title}</h3><strong>${item.price.toFixed(2)}</strong><div className="quantity"><button onClick={() => setQuantity(item.id, item.quantity - 1)} aria-label={`Decrease ${item.title} quantity`}>−</button><span>{item.quantity}</span><button onClick={() => setQuantity(item.id, item.quantity + 1)} aria-label={`Increase ${item.title} quantity`}>+</button><button className="remove" onClick={() => setQuantity(item.id, 0)}>Remove</button></div></div></article>)}</div><div className="cart-footer"><div><span>Subtotal</span><strong>${subtotal.toFixed(2)}</strong></div><div><span>Shipping</span><strong>{shipping ? `$${shipping.toFixed(2)}` : "Free"}</strong></div><div className="total"><span>Total</span><strong>${total.toFixed(2)}</strong></div><button className="checkout-button" onClick={() => setCheckoutMode(true)}>Continue to checkout</button><small>Taxes calculated at the next step.</small></div></> : <div className="empty-cart"><span>◇</span><h3>Your bag is empty</h3><p>Add a find you love and it will appear here.</p><button onClick={() => setCartOpen(false)}>Keep shopping</button></div>}</aside></>}
+      <div className="utility"><div className="shell utility-inner"><span>{user ? <>Hi, <button onClick={() => setAuthMode("signin")}>{user.name}</button> · <button onClick={() => { setUser(null); flash("Signed out"); }}>sign out</button></> : <>Hi! <button onClick={() => setAuthMode("signin")}>Sign in</button> or <button onClick={() => setAuthMode("register")}>register</button></>}</span><nav><button>Daily Deals</button><button>Brand Outlet</button><button>Help & Contact</button><span className="utility-spacer"/><button>Sell</button><button onClick={() => document.getElementById("trending")?.scrollIntoView({behavior:"smooth"})}>Watchlist ♡</button><button onClick={() => setAuthMode(user ? "signin" : "register")}>My Nook ▾</button><button aria-label="Notifications">♢</button><button onClick={() => setCartOpen(true)} aria-label={`Cart with ${cartCount} items`}>Bag <b>{cartCount}</b></button></nav></div></div>
 
       <header className="shell header">
         <a className="logo" href="#" aria-label="Nook home"><i>n</i><i>o</i><i>o</i><i>k</i><small>market</small></a>
@@ -65,7 +152,7 @@ export default function Home() {
       <section className="shell section"><div className="section-head"><div><span className="kicker">EXPLORE THE MARKETPLACE</span><h2>Shop by category</h2></div><button>See all categories →</button></div><div className="category-grid">{categories.map((c, i) => <button key={c[1]} onClick={() => { setCategory(c[1]); document.getElementById("trending")?.scrollIntoView({behavior:"smooth"}); }}><span className={`cat-icon c${i}`}>{c[0]}</span><strong>{c[1]}</strong><small>{["2.4M+ items","850K+ items","1.8M+ items","3.1M+ items","720K+ items","640K+ items","1.2M+ items","410K+ items"][i]}</small></button>)}</div></section>
 
       <section className="shell section" id="trending"><div className="section-head"><div><span className="kicker">HANDPICKED FOR YOU</span><h2>{category === "All categories" ? "Trending right now" : category}</h2></div><div className="arrows"><button aria-label="Previous">←</button><button aria-label="Next">→</button></div></div>
-        <div className="product-grid">{visible.map((p) => <article className="product" key={p.id}><div className="product-image"><img src={p.image} alt=""/><button className={saved.includes(p.id) ? "heart saved" : "heart"} aria-label="Save item" onClick={() => setSaved(saved.includes(p.id) ? saved.filter(id => id !== p.id) : [...saved,p.id])}>♥</button><span>{p.badge}</span></div><div className="product-body"><h3>{p.title}</h3><div className="price"><strong>${p.price.toLocaleString(undefined,{minimumFractionDigits:2})}</strong>{p.old && <del>${p.old}</del>}</div><p>{p.bids ? `${p.bids} bids · ${p.time}` : p.time}</p><small>+ shipping calculated at checkout</small><button onClick={() => { setCart(cart+1); flash("Added to your bag"); }}>Add to bag</button></div></article>)}</div>
+        <div className="product-grid">{visible.map((p) => <article className="product" key={p.id}><div className="product-image"><img src={p.image} alt=""/><button className={saved.includes(p.id) ? "heart saved" : "heart"} aria-label="Save item" onClick={() => setSaved(saved.includes(p.id) ? saved.filter(id => id !== p.id) : [...saved,p.id])}>♥</button><span>{p.badge}</span></div><div className="product-body"><h3>{p.title}</h3><div className="price"><strong>${p.price.toLocaleString(undefined,{minimumFractionDigits:2})}</strong>{p.old && <del>${p.old}</del>}</div><p>{p.bids ? `${p.bids} bids · ${p.time}` : p.time}</p><small>+ shipping calculated at checkout</small><button onClick={() => addToCart(p.id)}>Add to bag</button></div></article>)}</div>
         {visible.length === 0 && <div className="empty"><b>No treasures found yet.</b><span>Try another search or browse all categories.</span><button onClick={() => {setQuery("");setCategory("All categories");}}>Clear filters</button></div>}
       </section>
 

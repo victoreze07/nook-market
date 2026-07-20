@@ -96,3 +96,53 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+
+## Docker microservices
+
+The repository includes a first-stage container architecture alongside the
+existing Sites deployment:
+
+- `storefront` — the current Nook Market web experience on port `3000`
+- `gateway` — the public backend entry point on port `8080`
+- `catalog` — product reads on port `4001`
+- `cart` — cart operations on port `4002`
+- `orders` — order creation and lookup on port `4003`
+- `postgres` — durable database infrastructure
+- `redis` — cache and short-lived cart infrastructure
+
+Copy `.env.example` to `.env`, change the database password, and start the
+stack:
+
+```bash
+docker compose up --build
+```
+
+Useful endpoints:
+
+```text
+GET  http://localhost:8080/health
+GET  http://localhost:8080/api/catalog/products
+GET  http://localhost:8080/api/catalog/products/iphone-15-pro
+GET  http://localhost:8080/api/carts/demo-cart
+POST http://localhost:8080/api/carts/demo-cart/items
+POST http://localhost:8080/api/orders
+GET  http://localhost:8080/api/orders/{orderId}
+```
+
+Example requests:
+
+```bash
+curl -X POST http://localhost:8080/api/carts/demo-cart/items \
+  -H "content-type: application/json" \
+  -d '{"productId":"iphone-15-pro","quantity":1}'
+
+curl -X POST http://localhost:8080/api/orders \
+  -H "content-type: application/json" \
+  -d '{"customerId":"demo-user","items":[{"productId":"iphone-15-pro","quantity":1}]}'
+```
+
+The service APIs currently use in-memory repositories so the boundaries can be
+run and tested immediately. PostgreSQL and Redis are provisioned in Compose for
+the next implementation step: replacing those repositories with durable
+adapters, migrations, idempotency, and transactional checkout. Payments and
+authentication are intentionally not mocked as production-ready features.
