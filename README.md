@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # vinext-starter
 
 A clean full-stack starter running on
@@ -146,3 +147,6 @@ run and tested immediately. PostgreSQL and Redis are provisioned in Compose for
 the next implementation step: replacing those repositories with durable
 adapters, migrations, idempotency, and transactional checkout. Payments and
 authentication are intentionally not mocked as production-ready features.
+=======
+# nook-market
+>>>>>>> 5d96b6bb1c4ae5e6e80f68bbc094b83472b3682e
