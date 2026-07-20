@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-# vinext-starter
+# Nook Market
 
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
@@ -142,11 +141,8 @@ curl -X POST http://localhost:8080/api/orders \
   -d '{"customerId":"demo-user","items":[{"productId":"iphone-15-pro","quantity":1}]}'
 ```
 
-The service APIs currently use in-memory repositories so the boundaries can be
-run and tested immediately. PostgreSQL and Redis are provisioned in Compose for
-the next implementation step: replacing those repositories with durable
-adapters, migrations, idempotency, and transactional checkout. Payments and
-authentication are intentionally not mocked as production-ready features.
-=======
-# nook-market
->>>>>>> 5d96b6bb1c4ae5e6e80f68bbc094b83472b3682e
+The storefront is TypeScript/Next.js. Catalog, cart, and order APIs are compact
+Go services. Catalog and order records are durable in PostgreSQL; carts are
+stored in Redis with a rolling 30-day expiry. The gateway and authentication
+adapter remain thin Node.js edge services. Payments and authentication are not
+presented as production-ready features.
